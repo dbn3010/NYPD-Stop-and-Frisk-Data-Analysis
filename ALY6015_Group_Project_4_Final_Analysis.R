@@ -1,0 +1,402 @@
+## CLASS: ALY6015-21454
+## PROJECT: NYPD Stop and Frisk Final Data Analysis
+## PROFESSOR: Roy Wada
+## MEMBERS: Amryta Panda, Durga Bhanu Nayak, Bennett Furman
+
+
+################################################################################
+# Importing required libraries
+library(tidyverse)
+library(psych)
+library(bruceR)
+library(flextable)
+library(RColorBrewer)
+library(broom)
+library(DT)
+library(RColorBrewer)
+library(rio)
+library(dbplyr)
+library(psych)
+library(FSA)
+library(magrittr)
+library(ggpubr)
+library(dplyr)
+library(knitr)
+library(kableExtra)
+library(MASS)
+library(DescTools)
+library(apaTables)
+library(reshape2)
+library(tables)
+library(ggcorrplot)
+library(corrr)
+library(leaps)
+library(car)
+library(tinytex)
+library(ISLR)
+library(stats)
+library(caret)
+library(pROC)
+library(glmnet)
+library(Metrics)
+
+options(scipen = 999)
+
+## Importing dataset
+nypd <- read.csv('NYPD_SQF.csv')
+
+## Dimension of the dataset
+dim(nypd)
+
+################################################################################
+####                     Exploring the dataset
+
+## Glimpse of the dataset
+glimpse(nypd)
+
+## summary of the dataset
+summary(nypd)
+
+## Checking for any missing values
+colSums(is.na(nypd))
+
+## Converting the required variables into factors
+nypd <- nypd %>% 
+  mutate(year = as.factor(year),
+         pct = as.factor(pct),
+         sex = as.factor(sex),
+         race = as.factor(race))
+
+## summary of the dataset
+summary(nypd)
+
+## Getting unique values for groups
+unique(nypd$sex)
+unique(nypd$race)
+unique(nypd$year)
+
+
+
+################################################################################
+####                     Exploratory Data Analysis
+
+
+attach(nypd)
+
+## Plotting graph for number of stops happened for each race by gender
+
+# Total Stops by Year
+nypd %>% group_by(year) %>% 
+  summarise(Total_Stopped = sum(stopped))%>% 
+  ggplot() +
+  geom_line(aes(x = year, y = Total_Stopped, group = 1), col = '#440DFA', lwd = 1.5) +
+  geom_point(aes(x = '2011', y = max(Total_Stopped), size = 3, col = 'red'), show.legend = F) +
+  annotate('text', label = '659,079', x = '2010', y = 659079, size =5) +
+  geom_vline(xintercept = '2012', linetype = 'dashed') +
+  annotate('text', label = 'Petition Filed', x = '2013', y = 540000, size = 6) +
+  ggtitle('NYPD stops plummetted after Petition filed in 2012') +
+  xlab('Year') + ylab('Total Stops by NYPD') +
+  theme_classic(base_size = 12)
+
+
+# Total Frisked by Races
+nypd %>% group_by(race) %>% 
+  summarise(Total_Average_Frisk = sum(mean(frisked))) %>% 
+  ggplot(aes(x = reorder(race, -Total_Average_Frisk), y = Total_Average_Frisk, fill = reorder(race, -Total_Average_Frisk))) +
+  geom_bar(stat = 'identity') +
+  geom_text(aes(label = round(Total_Average_Frisk)), vjust = -0.5) +
+  scale_fill_manual(labels = c('B: Black','Q: Black Hispanic', 'W: White', 'P: White Hispanic', 'A: Asian and Pacific Islander', 'I: American Indian / Alaskan Native'),
+                    values = c('#B53333','#FF6969','#FF9C9C','#BDBDBD','#BDBDBD','#BDBDBD'), name = 'Races', ) +
+  ggtitle(label = 'People from Black race had been frisked the most', subtitle = 'Source: NYPD department data') +
+  xlab('Races') + ylab('Average total frisks') +
+  theme_classic(base_size = 12)
+
+
+# Precinct level stops
+nypd %>% group_by(pct) %>% 
+  summarise(Total_stops = sum(stopped)) %>% 
+  arrange(desc(Total_stops)) %>% 
+  head(5) %>% 
+  ggplot(aes(x = reorder(pct, -Total_stops), y = Total_stops, fill =reorder(pct, Total_stops))) +
+  geom_col(show.legend = F) +
+  geom_text(aes(label = Total_stops), vjust = -0.5) +
+  scale_fill_brewer(palette =  'Accent') +
+  ggtitle('Top 5 precinct with highest stops 2003 - 2015') +
+  xlab('Police Precincts') + ylab('Total stops happened') +
+  theme_classic(base_size = 12)
+
+
+nypd_dummy <- nypd %>% group_by(race) %>% summarise(total_frisked = sum(frisked),
+                                                    Weapon = round((sum(weapnfnd)/total_frisked),4) * 100,
+                                                    Contraband= round((sum(contrabn)/total_frisked),4) * 100)
+
+
+## Proportion of Illegal weapons and contraband found among races
+nypd_stats <- nypd_dummy %>%  pivot_longer(!c(race,total_frisked), names_to = 'Illegal_Stuff',values_to = 'Percent_found')
+ggplot(nypd_stats[which(nypd_stats$race %in% c('B','W')),]) +
+  geom_bar(aes(x= reorder(race, -Percent_found), y=Percent_found, fill = Illegal_Stuff), stat = 'identity', color='white', position = 'dodge') +
+  scale_x_discrete(breaks=c('W','B'), labels = c('White', 'Black'))+
+  xlab('Race of people')+ ylab('Illegal Stuff found in %') +
+  ggtitle('Rate of Illegal Stuff is found higher with Whites')+
+  scale_fill_manual(values = c('#F37B93','#7BCFF3'))+
+  theme_classic(base_size = 14)
+  
+
+
+# Correlations with frisked
+numeric1 <- unlist(lapply(nypd, is.numeric))
+nypd_num <- nypd[,numeric1]
+cor1 <- round(cor(nypd_num),2)
+# sorting all columns correlated with arrested from high to low
+sort(cor1[,3], decreasing = TRUE)
+
+## Subset Analysis
+  
+## Creating subgroups according to Races
+race.B <- subset(nypd, race == 'B') ## Black race
+race.Q <- subset(nypd, race == 'Q') ## Black-Hispanic race
+race.W <- subset(nypd, race == 'W') ## White race
+
+
+## Descriptive Stats of the dataset
+desc_B <-  data.frame(race.B %>%  
+                        dplyr::select(-c(year, pct, sex, race)) %>%
+                        psych::describe() %>% 
+                        dplyr::select( mean, sd) %>% 
+                        mutate(mean = round(mean,2), sd = round(sd, 2)))
+
+desc_Q <-  data.frame(race.Q %>%  
+                        dplyr::select(-c(year, pct, sex, race)) %>%
+                        psych::describe() %>% 
+                        dplyr::select(mean, sd) %>% 
+                        mutate(mean = round(mean,2), sd = round(sd, 2)))
+
+desc_W <-  data.frame(race.W %>%  
+                        dplyr::select(-c(year, pct, sex, race)) %>%
+                        psych::describe() %>% 
+                        dplyr::select( mean, sd) %>% 
+                        mutate(mean = round(mean,2), sd = round(sd, 2)))
+
+desc_race <- data.frame(cbind(desc_B, desc_Q, desc_W)) %>% 
+  rownames_to_column(var= 'Variables')
+
+
+# Saving the table as file
+save_as_docx(flextable(desc_race), path = 'desc_race.docx')
+
+# Creating Frisk vs Stop ratio
+nypd$frisk_stop_ratio <- round((nypd$frisked / nypd$stopped), 2)
+
+# Checking for missing values
+sum(is.na(nypd$frisk_stop_ratio))
+
+#Imputing missing values
+nypd$frisk_stop_ratio <- ifelse(is.na(nypd$frisk_stop_ratio), 0, nypd$frisk_stop_ratio)
+
+
+################################################################################
+####                     Hypothesis Testing
+
+
+# Finding significant difference between Mean of Black race  and white race getting frisked 
+# ANOVA test for frisk to stop ratio among top affected races
+f.anova <- aov(frisk_stop_ratio ~ race, data = filter(nypd, nypd$race %in% c('B', 'Q', 'W')))
+summary(f.anova)
+
+# Saving summary to an object
+f.summary <- summary(f.anova)
+
+# Degree of Freedom (Numerator)
+df.numerator <- f.summary[[1]][1,'Df']
+
+# Degree of Freedom (Denominator)
+df.denominator <- f.summary[[1]][2,'Df']
+
+# F test value from summary
+F.value <- f.summary[[1]][1, 'F value']
+F.value
+
+# Critical Value
+qf(p=0.05, df1 = df.numerator, df2 = df.denominator, lower.tail = F)
+
+# Tukey Test
+TukeyHSD(f.anova, conf.level = 0.95)
+
+plot(TukeyHSD(f.anova, conf.level = 0.95))
+
+
+
+# Chi-Squared test of Independence for frisk happened before and after petition got filed
+
+race_2011 <- data.frame(nypd %>% filter(year == '2011') %>% group_by(race) %>% 
+                          summarise('Year_2011' = round(mean(frisked))))
+
+race_2012 <- data.frame(nypd %>% filter(year == '2012') %>% group_by(race) %>% 
+                          summarise('Year_2012' = round(mean(frisked))) %>% 
+                          rename('race1' = 'race'))
+
+race_df <- cbind(race_2011, race_2012)
+
+race_df <- race_df %>% dplyr::select(-race1)
+
+save_as_docx(flextable(race_df), path = 'race.docx')
+
+
+## Performing the Chi-Squared test
+race_mtrix <- as.matrix(race_df[2:3])
+rownames(race_mtrix) <- race_df$race
+t(race_mtrix)
+
+# Chi-square test
+cs1 <- chisq.test(t(race_mtrix))
+cs1
+
+qchisq(0.05, cs1$parameter, lower.tail = F)
+
+save_as_docx(flextable(tidy(cs1)), path = 'cs1.docx')
+
+
+
+################################################################################
+## LASSO regression - Linear Regression
+
+# creating new variables
+nypd <- nypd %>% group_by(year, pct, sex) %>% mutate(total_stopped = sum(stopped), prop_frisked = frisked/total_stopped*100)
+nypd$prop_frisked <- ifelse(is.na(nypd$prop_frisked),0,nypd$prop_frisked)
+
+# regsubsets feature selection
+best_subset <- regsubsets(prop_frisked ~ ., data = nypd, nvmax = 5, really.big=T)
+summary(best_subset)
+
+model1 <- lm(formula = prop_frisked ~ ., data = nypd)
+summary(model1)
+
+vif(model1)
+
+par(mfcol = c(2,2))
+plot(model1)
+dev.off()
+
+varImp(model1)
+
+
+# training and test sets
+set.seed(3456)
+trainIndex <- createDataPartition(nypd$prop_frisked, p = 0.7, list = FALSE, times = 1)
+train <- nypd[trainIndex,]
+test <- nypd[-trainIndex,]
+
+train_x <- model.matrix(prop_frisked~. -frisk_stop_ratio - total_stopped+ frisked:race, data = train)[,-1]
+test_x <- model.matrix(prop_frisked~. -frisk_stop_ratio - total_stopped + frisked:race, data = test)[,-1]
+train_y <- train$prop_frisked
+test_y <- test$prop_frisked
+
+# cross validation
+set.seed(3456)
+lasso <- cv.glmnet(train_x, train_y, nfolds = 10)
+
+plot(lasso)
+
+# fitting model
+lasso.1se <- glmnet(train_x, train_y, alpha = 1, lambda = lasso$lambda.1se)
+coef(lasso.1se)
+
+sort(varImp(lasso.1se))
+
+
+# predictions and rmse for model1 (ols model)
+preds1 <- predict(model1, new = train)
+rmse1 <- rmse(train_y, preds1)
+
+preds2 <- predict(model1, new = test)
+rmse2 <- rmse(test_y, preds2)
+
+# predictions and rmse for lasso model
+preds3 <- predict(lasso.1se, newx = train_x)
+rmse3 <- rmse(train_y, preds3)
+
+preds4 <- predict(lasso.1se, newx = test_x)
+rmse4 <- rmse(test_y, preds4)
+
+# table of rmse values
+ols_rmse <- c(rmse1, rmse2)
+lasso_rmse <- c(rmse3, rmse4)
+df <- round(data.frame(ols_rmse, lasso_rmse),3)
+rownames(df) <- c("train predictions","test predictions")
+
+coef(lasso.1se)
+
+write.csv(df, "RMSE_table.csv", row.names = T)
+
+
+
+
+
+################################################################################
+##  LOGISTIC REGRESSION
+
+rate <- 0.5
+nypd$frisking_rate1 <- ifelse(nypd$frisk_stop_ratio >= rate,1,0)
+
+set.seed(2)
+trainIndex <- createDataPartition(nypd$frisking_rate1,p=.7,list=FALSE,times = 1)
+train <- nypd[trainIndex,]
+test <- nypd[-trainIndex,]
+
+model1 <- glm(frisking_rate1 ~ .- stopped -arrested -frisked - total_stopped - prop_frisked - frisk_stop_ratio - year - pct, 
+              data = train, family = binomial(link="logit"))
+summary(model1)
+
+prob_train <- predict(model1, newdata=train, type="response")
+pred_class <- as.factor(ifelse(prob_train >= rate,1,0))
+train$frisking_rate1 <- as.factor(train$frisking_rate1)
+cm1 <- confusionMatrix(pred_class, train$frisking_rate1)
+cm1
+
+prob_test <- predict(model1, newdata = test,type="response")
+pred_class1 <- as.factor(ifelse(prob_test >= rate,1,0))
+test$frisking_rate1 <- as.factor(test$frisking_rate1)
+cm2 <- confusionMatrix(pred_class1, test$frisking_rate1)
+cm2
+
+roc1 <- roc(test$frisking_rate1,prob_test)
+plot(roc1, col = "orange", ylab = "Sensitivity - TP Rate",xlab="Specificity - FP Rate")
+
+auc1 <- auc(test$frisking_rate1,pred_class1)
+auc1
+
+auc2 <- auc(train$frisking_rate1,pred_class)
+auc2
+
+Accuracy <- c(cm1$overall[1],cm2$overall[1])
+Specificity <- c(cm1$byClass[2],cm2$byClass[2])
+Precision <- c(cm1$byClass[5],cm2$byClass[5])
+Recall <- c(cm1$byClass[6],cm2$byClass[6])
+
+perform_metrics <- data.frame(Accuracy, Specificity, Precision, Recall)
+rownames(perform_metrics) <- c("Training_set","Test_set")
+perform_metrics
+
+
+perf_metric <- data.frame(t(perform_metrics)) %>% rownames_to_column(var = 'Metrics') %>% 
+  mutate(Training_set = round(Training_set, 4),Test_set = round(Test_set, 4))
+
+save_as_docx(flextable(perf_metric), path = 'perf_metric.docx')
+
+#################################### END #######################################################
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
